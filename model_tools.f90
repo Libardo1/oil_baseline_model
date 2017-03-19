@@ -1,208 +1,94 @@
-module hamann_tools
+module model_tools
 use basic 
 use tools
-use solve
-use def_types
 
 implicit none 
 contains 
 
-subroutine oilcompany_franz_v3(PROFIT_X,REVX,pstar,sp,Xr,PROFIT_Xr,REVXr,sgrid,spr,  & 	! output
-								q,kappa,disc,s,Pp,SS,PX,n,ns,np)						! input
- 
+subroutine oilcompany(spr,Xr,REVXr,PROFIT_Xr,EE & 			! output
+					Pxprob,P,SS,smin,smax,d,kappa,q,np,ns)  	! input
+
 	!! OILCOMPANY  Solves optimal oil extraction problem by private firm 
-	! Unlike oilcompany_franz.m in this code we need to rewrite S,PX and Pr in order to have s changing first and then prices. We need to do
-	! in this way in order to implement this outcomes in Time Iteration codes.
 
 	! Dummy 
-	integer, intent(in) :: n
-	real, intent(in) 	:: q, kappa, disc, s(:), SS(:)  
+	integer, intent(in) :: np, ns
+	real, intent(in) 	:: Pxprob(:,:),P(:),SS(:),smin,smax,q,d,kappa,q
 	
-	real, intent(out), dimension(np,ns)	:: spr, REVXr, PROFIT_Xr, Xr
-	real, intent(out)	:: sgrid(ns), sp(n), REVX(n), PROFIT_X(n)
-	real, allocatable, intent(out) :: pstar(:,:) 	
-	
-	integer, intent(inout):: ns, np
-	real, intent(inout)	:: PX(n), Pp(np,np)
-	
+	real, intent(out), dimension(np,ns)	:: spr,Xr,REVXr,PROFIT_Xr,EE 
+		
 	! Local	
 	integer :: i, j, k, l
-	real	:: x(n,ns), pie(n,ns)
-	
-	integer, allocatable :: indx(:), jndx(:), val(:)
-	integer :: element, rep
-	real :: EST(ns*n,ns), EST_FINAL(ns*n,ns*2), Pr_aux(ns*np*ns,ns*np)
-	real :: temp(ns*n,n)
-	real, allocatable :: v(:), x_p(:)
-	type(sparse_matrix) :: Pr
-	
-	real :: XX(n)
-	
-	real :: f(n), Eo, Ex, Erevx, profit, value
-	
-	real ::	vr(np,ns), fr(ns,np), FFr(ns,np)
-
-	x = 0.
-	pie = 0.
-	!! Profit function and feasible extraction x<=o
-	
-	do i = 1,ns*np
-    	do j = 1,ns
-        	x(i,j) = (SS(i)-s(j)+disc)        	
-        	if(x(i,j)>=0 .and. x(i,j)<=SS(i)+disc) then        
-          		pie(i,j) = PX(i)*x(i,j)-kappa*((x(i,j))**2/(SS(i)))
-        	else
-          		pie(i,j) = -99999999999.
-        	end if 
-        	!write(*,*) 'i', i , 'j', j ,x(i,j),'>=',0, x(i,j)>=0 , '----',x(i,j),'<=',SS(i)+disc,  x(i,j)<=SS(i)+disc
-    	end do
-!    	if (i==175)then
-    		!stop
-!    	end if
-	end do 
-	
-	
-!	call print_matrix(pie(:,1:10))
-	!! Transition probability matrix (see Sargent and Ljundqvist) 
-!	write(*,*) 'sparse part'
-	! we include the functionalities of Sparse BLAS Library to handle the following lines   
-	! create the VAL, INDX, JINDX entries 
-	
-	! EST = kron(eye(ns),ones(n,1))
-	! EST_FINAL = repmat(EST,1,2)
-	rep = 2
-	allocate(indx(ns*n*rep)) 
-	allocate(jndx(ns*n*rep))
-	allocate(val(ns*n*rep))
-	
-    allocate(Pr%values(ns*n*rep))
-    allocate(Pr%d1(ns*n*rep))
-    allocate(Pr%d2(ns*n*rep))
-
-	element = 1
-!	val = 1.	
-	do k = 1,rep
-  		do i = 1,ns
-  			do j = 1,n
-  			 	Pr%values(element) = 1.
-				Pr%d1(element) = (i-1)*n + j
-				Pr%d2(element) = i + (k-1)*ns
-				!write(*,*) Pr%values(i), Pr%d1(element), Pr%d2(element), element
-				element = element + 1
-  			end do
-  		end do 
-  	end do 
-  
-	!	Pr_aux = EST_FINAL*(repmat(kronecker(Pp,ones(ns,ns)),ns,1))
-	temp  = repmat(kronecker(Pp,ones(ns,ns)),ns,1)
-!	write(*,*)shape(temp), shape(repmat(kronecker(Pp,ones(ns,ns)),ns,1))
-
-!	call print_matrix(temp(:,1:10))
-!	stop
-	
-	do i = 1,ns*n*rep
-		Pr%values(i) = temp(Pr%d1(i),Pr%d2(i))
-!		write(*,*) Pr%values(i), temp(Pr%d1(i),Pr%d2(i))!, Pr%d1(i), Pr%d2(i)
-	end do 
-!	stop
-	!! Solve Bellman equation for oil-firm
-
-!	call print_matrix(pie(:,1:10))
-
-	allocate(v(n))
-	allocate(x_p(n))
-	allocate(pstar(n,n))
-
-!	write(*,*) 'Solvedp'	
-	call solvedp(v,x_p,pstar, pie,Pr,q,'policy',0.)
-!	call print_matrix_dat('outData/oilcompany/x.txt',reshape(x_p,(/size(x_p),1/)))
-!	call print_matrix_dat('outData/oilcompany/pstar.txt',pstar)
-
-!	write(*,*) pstar(169,:)
-!	stop
-	XX = SS + disc - s(int(x_p))
-	where(XX<1E-6) XX =0.
-!	do i =1,ns
-!		write(*,*)	XX(i),  SS(i),  disc, '-',s(int(x_p(i))+1)
-!	enddo
-	REVX = PX*XX
-	
-	PROFIT_X = PX*XX - (kappa/2)*(XX**2)/SS
-	f = reshape(ergdist(pstar,1./size(pstar,1)*ones(n,1)),(/n/))
-	!! Compute optimal steady-state oil reserves desired by oil company
-!	call print_matrix_dat('outData/oilcompany/f.txt',reshape(f,(/size(f),1/)))
- 
-	Eo  = dot(f,s(int(x_p)))
-	Ex  = dot(f,XX)
-	Erevx  = dot(f,REVX)
-	profit = dot(f,(PX*XX-kappa*(XX**2)/SS)) 
-	value  = dot(f,PX*SS)
 		
-	!! Plots
-	! Reshaping
-	vr = transpose(reshape(v,(/ns,np/)))
-	Xr = transpose(reshape(XX,(/ns,np/)))
-	fr = reshape(f,(/ns,np/))
-	FFr = transpose(cumsum(transpose(fr)))
-	REVXr = transpose(reshape(REVX,(/ns,np/)))
-	PROFIT_Xr = transpose(reshape(PROFIT_X,(/ns,np/)))
-	
-	sp = s(int(x_p))
-	spr = transpose(reshape(sp,(/ns,np/)))
-	sgrid = s	
-!	do i = 1,n
-!		write(*,*) i, XX(i), ' = ', SS(i), '+', disc, '-', s(int(x_p(i))), '/////' , int(x_p(i))
-!		write(*,*) i, f(i)
-!	end do 
-!	write(*,*) spr(1,:)
-!	stop
+	! Construct the firm's state space
 
-	write(*,*)	
-	write(*,*)	'Steady State Means'
-	write(*,*)	
-	write(*,*)	'	Stock					=', Eo 
-	write(*,*)	'	Value of Stock				=', value
-	write(*,*)	' 	Extraction				=', Ex
-	write(*,*)	'	Reserves (in periods)			=', Eo/Ex
-	write(*,*)	' 	Profits					=', profit
-	write(*,*)	'	Revenues				=', Erevx
-	write(*,*)
-	
-	!*************************************************
-	! PLOTS
-	!*************************************************
-	! We export data to plot into a python notebook in this same folder
-	!
-	
-	call print_matrix_dat('outData/oilcompany/s.txt',reshape(s,(/size(s),1/)))
-	call print_matrix_dat('outData/oilcompany/Xr.txt',Xr)
-	call print_matrix_dat('outData/oilcompany/vr.txt',vr)
-	call print_matrix_dat('outData/oilcompany/PROFIT_Xr.txt',PROFIT_Xr)
-	call print_matrix_dat('outData/oilcompany/REVXr.txt',REVXr)
-	call print_matrix_dat('outData/oilcompany/fr.txt',fr)
-	call print_matrix_dat('outData/oilcompany/Fr.txt',Fr)
+	s  = repmat(S,1,np);
+	sp = repmat(S,1,np);
+	px = repmat(PX,ns,1);
 
+	! Time Iteration Loop 
+	!%%%%%%%%%%%%%%  Technical parameters  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	iter            = 0;            ! 
+	d2              = 100;          !
+	uptd_of         = 0.1;          ! Weight on new policy function in update to next iteration
+	iter_tol_of     = 3000;         !
+	tol_of          = 1e-6;         !
+	outfreq_of      = 10;           ! Display frequency (shows in screen each 10th iteration)
+
+	disp('DE Iter      Norm');
+
+	!%%%%%%%%%%%%%%%%%%%%%%%%%% Start of iteration%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	do while(d2>tol_of .and. iter < iter_tol_of)
+    
+    ! Retrieve updated policy functions
+    oldsp=sp;
+
+    ! Marginal profits
+    mr = px - (2*kappa*(s+d-sp)*s - kappa.*(s+d-sp)**2 )/(s**2);
+       
+    ! Interpolation 
+    do i=1,ns
+        do j=1,np    
+        	!************** Piecewise interpolation **************  
+			do k = 1,np
+				inter(k) =  piecewise(SS,mr(:,k),sp(i,j))
+			end do	
+			emr(i,j) = beta*sum(inter*Pxprob(j,:))		! Expected marginal profits
+			inter=0.
+			!*****************************************************
+
+            x(i,j) = (px(i,j) - emr(i,j))*s(i,j)/(2*kappa)  
+            x(i,j) = maxval(0.0001,x(i,j))
+               
+            sp(i,j) = maxval(s(i,j) - x(i,j) + d,smin)
+            EE(i,j) = x(i,j) - (px(i,j) - emr(i,j))*s(i,j)/(2*kappa)
+        end do 
+    end do
+    
+    iter=iter+1 ! Update iteration counter
+    
+    ! Calculate difference between new and old policies
+    d2 = max(max(abs(sp-oldsp)));
+    
+    ! Print results once every (outfreq) iterations
+    if mod(iter, outfreq_of) == 0
+    	fprintf('%d          %1.7f \n',iter,d2);
+    end
+    
+    ! =====================Updating rule for next iteration=================
+    sp = uptd_of*sp + (1-uptd_of)*oldsp;
+    ! ======================================================================
+    end do 
+ 
+	write(*,*) iter, d2    ! Print last iteration result
+
+	! Other equations of the firm 
+	revx = px*x
+	profit = px*x - kappa*(x^2)/s
 end subroutine 
 
-subroutine constrained_V2F(warnn,r,pai,dgrid,ygrid,yTgridlevel,revX,revXgridlevel, 	&	! output
-						   la,dpix,dp,yT,cT,c,distTol,dist_dpix,d,p,  				&	! output 
-							YYT,YTprob,RREVX,Pxstar,rstar,betta,a,yN,xi,sigg,		&	! input
-							aT,aN,kapa,nd,ny,dlower,dupper,eqs,solution)				! input
- 
-	!Use a policy-function iteration procedure to approximate the equilibrium of  a small open economy with a flow
-	!collateral constraint as presented in
-	!''Multiple Equilibria in Open Economy Models with Collateral Constraints: Overborrowing Revisited'' 
-	! by Stephanie Schmitt-Grohé and Martín Uribe.
-	!The algorithm accounts for  the possibility that for
-	!some current states there is no choice of next-period debt
-	!for which consumption of tradables is positive and the collateral constraint is satisfied. This is done by calling pathfinder.m
-	!©  Stephanie Schmitt-Grohé and Martín Uribe, May 2016 for matlab
+subroutine household(pnn,cT,c,bp,bpy,gdp,  bp,b,yt,cT,c,pn,B,yN,aT,r,bpmax,revx,Pp, &
+						cbind,sigg,omega,gamma,kapa,blower,bupper,cn,betta,np,ns,nd)
 
-	!Choose an equilibrium selection criterion
-	!'b' favors the least severe of the two constrained outcomes (point B in the graphs shown in the references cited in the preamble of this program)
-	!'c' favor the most severe of the two constrained outcomes (point C in the graphs)
-	!'a' favor unconstrained outcomes (point A in the graphs). [We leave the possibility of this equilibrium as a conjecture that the present model delivers an equilibrium displaying overborrowing. We  encourage readers to work on this conjecture. At the present stage, the equilibrium under criterion (a) delivers a solution (i.e., artificial time series generated by simu.m, see simu_constrained_a.mat)  satisfying all equilibrium conditions except the nonnegativity of consumption (i.e., min(CT) fails to be positive).
-	
 	! Dummy	
 	integer, intent(out):: warnn
 	real, intent(out)	:: r,pai(ny,ny),dgrid(nd),ygrid(ny),yTgridlevel(ny)

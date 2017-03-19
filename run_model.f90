@@ -151,7 +151,7 @@ program run_model
 	case('RE')
 	
 		call oilcompany(M_spr(:,:1),M_Xr(:,:,1),M_RREVXr(:,:,1),M_PROFIT_Xr(:,:,1),M_EE(:,:,1), &
-		 	 			Pp,p,s,smin,smax,disc,kappa,q,ns,np)
+		 	 			Pp,p,s,smin,smax,disc,kappa,q,np,ns)
 		
 !      	M_spr(:,:,1)       = spr ! ok
 !     	M_Xr(:,:,1)        = Xr
@@ -177,7 +177,7 @@ program run_model
     	write(*,*) 'T', time
     	Pp = M_pxstar(:,:,time)
 		call oilcompany(M_spr(:,:time),M_Xr(:,:,time),M_RREVXr(:,:,time),M_PROFIT_Xr(:,:,time),M_EE(:,:,time), &
-		 	 			Pp,p,s,smin,smax,disc,kappa,q,ns,np)
+		 	 			Pp,p,s,smin,smax,disc,kappa,q,np,ns)
 
 !		M_spr(:,:,time)       = spr 
 !		M_Xr(:,:,time)        = Xr
