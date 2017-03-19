@@ -118,7 +118,7 @@ program run_model
 	enddo
 	
 	n0 = 0.01400  ! These initial counters no training
- 	
+ 	! make change 
 	M_Pxstar(:,:,tt) = betamultinomial(real(ip_t),n0);
 !	do i =1,T
 !		write(*,*) i
