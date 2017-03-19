@@ -92,7 +92,156 @@ subroutine household(pnn,cT,c,bp,bpy,gdp,  bp,b,yt,cT,c,pn,B,yN,aT,r,bpmax,revx,
 	! Dummy	
 	
 	!Local
+	integer :: i,j,k,l,t
 
+	thereshold_ct = 1e-4;  ! Minimum value of consumption
+
+	! Time Iteration Loop 
+
+	! %%%%%%%%%%%%%%%%%%%%%%  Technical parameters  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	uptd     = 0.9;     ! Weight on new policy function in update to next iteration
+	outfreq  = 5;       ! Display frequency (shows in screen each 20th iteration)
+	tol      = 3E-3;    ! Numerical tolerance (convergence criterion) 
+
+	iter     = 0;
+	d2       = 100;    
+
+	write(*,*) 'DE Iter      Norm'
+	! %%%%%%%%%%%%%%%%%%%%%%%%%% Start of iteration%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	while( d2>tol )
+    
+    	! Retrieve updated policy functions
+    	oldct = ct
+        
+    	! Marginal utility of consumption given current consumption policy 
+    	mu  = real(c**-sigma*gamma**(1/omega)**(ct/c)**(-1/omega));  
+        
+    	! Interpolation  of expected marginal utility
+    	! We interpolate the expected marginal utility for each level of
+    	! reserves (k)
+    	do k = 1,ns
+        	mu_aux = mu((k-1)*nd+1:k*nd,:) 
+        	do i = 1,nd
+            	do j = 1,Ntotal 
+                	!************** Piecewise interpolation **************  
+					do l = 1,np
+						inter(l) =  piecewise(BB,mu_aux(:,l),bp(i,j))
+					end do	
+					emup_aux(i,j) = sum(inter*Prob(j,:))		! Expected marginal profits
+					inter=0.
+					!*****************************************************
+            	end do
+        	end do
+    	end do
+    
+    	do t = 1,ns
+    	   emup((t-1)*nd+1:t*nd,:) = emup_aux(:,:,t)
+    	end do 
+   	  
+    	!----------------- Find new constrained values -----------------------
+    	gdp = (yt+pn*yn+revx)
+    	bpmax = kappa*gdp 
+    	where (bpmax>bmax) bpmax = bmax
+    	where (bpmax<bmin) bpmax = bmin
+    	ctbind = -(1+r)*b + revx + yt - at + bpmax
+    	where (ctbind<thereshold_ct) ctbind = thereshold_ct
+    	cbind  = (gamma**(1/omega)*ctbind**((omega-1)/omega)+(1-gamma)**(1/omega)*cn**((omega-1)/omega))**(omega/(omega-1))
+    	!----------------------------------------------------------------------
+    
+    	do i=1:nd*ns
+        do j=1:Ntotal
+       
+            ! Calculate Euler Equation Error at maximum feasible consumption cbind
+            EE(i,j) = cbind(i,j)**-sigma*gamma**(1/omega)*(ctbind(i,j)/cbind(i,j))**(-1/omega)-(1+r)*beta*emup(i,j);
+        
+            if(EE(i,j)>tol*1e-5)then ! If positive, constraint will be binding then:
+               
+                ! Debt will be as big as possible                
+                bp(i,j) = bpmax(i,j);      
+
+                ! Consumption is solved from budget constraint
+                c(i,j)  = cbind(i,j);                            
+                ct(i,j) = ctbind(i,j);
+                pn(i,j) = real(((1-gamma)/gamma*(ct(i,j)/cn))**(1/omega))
+                gdp(i,j) = yt(i,j)+ pn(i,j)*yn + revx(i,j)
+                bpy(i,j) = bp(i,j)/gdp(i,j);
+               
+            else ! Constraint not binding
+            
+            	! Define function that calculates the absolute value of Euler
+                ! Equation Error for a given consumption
+                
+             	!********************* Bisection Algorithm ***********************
+    			cl = thereshold_ct
+				ch = 1.        
+				error_EE = 1. 
+	             
+				cm = (cl+ch)/2
+				if ( (gamma**(1/omega)*cl**((omega-1)/omega)+(1-gamma)**(1/omega)* &
+					cn**((omega-1)/omega))**(omega/(omega-1)))**(-sigma+(1/omega))* &
+					gamma**(1/omega)*(cl)**(-1/omega))-(1+r)*beta*emup(i,j)   * 
+					 (gamma**(1/omega)*ch**((omega-1)/omega)+(1-gamma)**(1/omega)* &
+					cn**((omega-1)/omega))**(omega/(omega-1)))**(-sigma+(1/omega))* &
+					gamma**(1/omega)*(ch)**(-1/omega))-(1+r)*beta*emup(i,j)) > 0 ) then 
+					write (*,*) 'Warning: Bisection can not find a solution in EE'
+				end if
+				do while (abs(error_EE)>delta) 
+					cm = (cl+ch)/2
+					if ( (gamma**(1/omega)*cl**((omega-1)/omega)+(1-gamma)**(1/omega)* &
+						cn**((omega-1)/omega))**(omega/(omega-1)))**(-sigma+(1/omega))* &
+						gamma**(1/omega)*(cl)**(-1/omega))-(1+r)*beta*emup(i,j)   * 
+					 	(gamma**(1/omega)*ch**((omega-1)/omega)+(1-gamma)**(1/omega)* &
+						cn**((omega-1)/omega))**(omega/(omega-1)))**(-sigma+(1/omega))* &
+						gamma**(1/omega)*(ch)**(-1/omega))-(1+r)*beta*emup(i,j)) > 0 ) then
+						ch = cm
+					else 
+						cl = cm
+					end if
+					
+					error_EE = (gamma**(1/omega)*cm**((omega-1)/omega)+(1-gamma)**(1/omega)* &
+						cn**((omega-1)/omega))**(omega/(omega-1)))**(-sigma+(1/omega))* &
+						gamma**(1/omega)*(cm)**(-1/omega))-(1+r)*beta*emup(i,j)
+				end do
+
+				ct(i,j)  = cm
+                EE(i,j) = error_EE
+               	!********************* Bisection Algorithm ***********************
+                       
+                ct(i,j) = maxval(ct(i,j),thereshold_ct)
+                
+                c(i,j) = ((gamma**(1/omega)*ct(i,j)**((omega-1)/omega)+(1-gamma)**(1/omega)*cn**((omega-1)/omega))**(omega/(omega-1)));
+    			!!!! get real part from a complex number 
+                pn(i,j) = real(((1-gamma)/gamma*(ct(i,j)/cn))**(1/omega))
+                gdp(i,j) = yt(i,j)+ pn(i,j)*yn + revx(i,j)
+                 
+                ! Solve debt from budget constraint, check if it is within grid bounds
+
+                bp(i,j) = maxval(-revx(i,j) - yt(i,j)+(1+r)*b(i,j)+ ct(i,j)+ at, bmin)
+                bp(i,j) = min(bp(i,j),bmax)
+                bpy(i,j) = bp(i,j)/gdp(i,j)
+            end if
+        end do
+    end do
+  	iter=iter+1 ! Update iteration counter
+   
+  	! Calculate difference between new and old policies
+    
+  	d2 = maxval(maxval(abs(ct-oldct),1),1)
+
+  	! Print results once every (outfreq) iterations
+  	if (mod(iter, outfreq) == 0)then
+  		write (*,*) iter, '     ', d2
+  	end if 
+    
+    !=====================Updating rules for next iteration================
+    ct = uptd*ct+(1-uptd)*oldct
+    pn = real(((1-gamma)/gamma*(ct/cn))**(1/omega))
+    c = (gamma**(1/omega)*ct**((omega-1)/omega)+(1-gamma)**(1/omega)*cn**((omega-1)/omega))**(omega/(omega-1))
+    where (-revx - yt+(1+r)*b + ct+ at<bmin) bp = bmin 
+    where (bp>bmax) bp = bmax
+    !======================================================================
+	end do
+  	write (*,*) iter, '     ', d2
 end subroutine 
 
 subroutine ergodic(TT,Tburn,LE,M_Pxstar,M_REVXr,M_Xr,M_spr,M_p,M_cT,M_c,M_dpix,M_dp,Pp,yN,&
